@@ -70,6 +70,11 @@ class GMail(object):
         try:
             self.__imap.check()
             self._retried = False
+        except AttributeError:
+            # Special case for initializing.
+            self._connect()
+            self._retried = True
+            return(self._imap)
         except Exception as e:
             self.logger.info(e)
             if self._retried:
@@ -132,7 +137,7 @@ class GMail(object):
         f = urllib.urlopen(self._url, params)
         result = f.read()
         if result != '':
-            self.logger.info(result)
+            self.logger.warning(result)
 
 
 
