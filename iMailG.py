@@ -15,55 +15,72 @@ class GMailError(Exception):
 class GMail(object):
     logger = logging.getLogger('GMail')
     config_file = '%s/.iMailG.ini' % os.environ['HOME']
-    def __init__(self, address, password):
-        self.logger    = self.__class__.logger
-        self._address  = address
-        self._password = password
-        self._retried  = False
-        self.__imap    = None
+    def __init__(self, password):
+        self._password  = password
+        self.logger     = self.__class__.logger
+        self._retried   = False
+        self.__imap     = None
+        self._blacklist = []
+        self._whitelist = []
         self._read_config()
 
     def _read_config(self):
         cfg = iniparse.INIConfig(open(self.__class__.config_file))
         try:
-            self._last_uid = cfg[self._address]['last_uid']
+            self._address = cfg['settings']['address']
+        except KeyError:
+            raise(GMailError('address is required in the settings section of %s' % self.__class__.config_file))
+        try:
+            self._last_uid = cfg['settings']['last_uid']
         except KeyError:
             self._last_uid = '0'
         try:
-            self._server = cfg[self._address]['server']
+            self._server = cfg['settings']['server']
         except KeyError:
             self._server = 'imap.gmail.com'
         try:
-            self._port = cfg[self._address]['port']
+            self._port = cfg['settings']['port']
         except KeyError:
             self._port = '993'
         try:
-            self._badge = cfg[self._address]['badge']
+            self._badge = cfg['settings']['badge']
         except KeyError:
             self._badge = '0'
         try:
-            self._receipt = cfg[self._address]['receipt']
+            self._receipt = cfg['settings']['receipt']
         except KeyError:
-            raise(GMailError('receipt is required in the %s section of %s' % (self._address, self.__class__.config_file)))
+            raise(GMailError('receipt is required in the settings section of %s' % self.__class__.config_file))
         try:
-            self._ringtone = cfg[self._address]['ringtone']
+            self._ringtone = cfg['settings']['ringtone']
         except KeyError:
             self._ringtone = 'default'
         try:
-            self._label = cfg[self._address]['label']
+            self._label = cfg['settings']['label']
         except KeyError:
             self._label = 'INBOX'
         try:
-            if cfg[self._address]['send_summary'] == '0':
+            if cfg['settings']['send_summary'] == '0':
                 self._send_summary = False
             else:
                 self._send_summary = True
         except KeyError:
             self._send_summary = True
         try:
-            self._url = cfg[self._address]['url']
+            self._url = cfg['settings']['url']
         except KeyError:
             self._url = 'http://igmail.idemfactor.com/ppush.php'
+
+        try:
+            for address in cfg['blacklist']:
+                self._blacklist.append(address)
+        except KeyError:
+            pass
+        
+        try:
+            for address in cfg['whitelist']:
+                self._whitelist.append(address)
+        except KeyError:
+            pass
 
     @property
     def _imap(self):
@@ -173,13 +190,16 @@ class GMail(object):
 
             fields = re.split('[\r\n]+', data[0][1])
             msg = {'uid': uid, 'subject': 'No Subject', 'from': 'No From'}
+            from_address = None
             for field in fields:
                 m = re.match('From: (.*)$', field)
                 if m is not None:
                     msg['from'] = m.group(1).strip()
-                    m = re.match("(.*)<", msg['from'])
+                    from_address = m.group(1).strip()
+                    m = re.match("(.*)<(.*)>\s*$", msg['from'])
                     if m is not None:
-                        msg['from'] = m.group(1).strip()
+                        msg['from']  = m.group(1).strip()
+                        from_address = m.group(2).strip()
                     self.logger.debug("Extracted from field from message %s: %s" % (id, msg['from']))
                     continue
 
@@ -188,6 +208,16 @@ class GMail(object):
                     msg['subject'] = m.group(1).strip()
                     self.logger.debug("Extracted subject field from message %s: %s" % (id, msg['subject']))
                     continue
+
+            if from_address in self._blacklist:
+                self.logger.debug("Messages from %s blacklisted" % from_address)
+                continue
+
+            if len(self._whitelist) > 0:
+                if from_address not in self._whitelist:
+                    self.logger.debug("Messages from %s not whitelisted" % from_address)
+                    continue
+
             notifications.append(msg)
 
         self.logger.debug("%d unread messages" % count)
@@ -199,7 +229,7 @@ class GMail(object):
         # TODO this is possibly a race condition if we have multiple instances
         # running polling multiple mail boxes
         cfg = iniparse.INIConfig(open(self.__class__.config_file))
-        cfg[self._address]['last_uid'] = self._last_uid
+        cfg['settings']['last_uid'] = self._last_uid
         f = open(self.__class__.config_file, 'w')
         print >>f, cfg
         f.close()
@@ -214,22 +244,17 @@ class GMail(object):
                 time.sleep(sleep_time)
         except Exception as e:
             self.logger.critical(e)
-            self._push(message="Unable to monitor inbox")
+            #self._push(message="Unable to monitor inbox")
             raise(e)
 
 
 if __name__ == '__main__':
     try:
-        try:
-            mailbox = sys.argv[1]
-        except IndexError:
-            sys.stderr.write("Please pass in the mailbox to monitor as an argument.")
-            sys.exit(1)
         password = getpass.getpass()
         FORMAT = '%(asctime)-15s %(name)s %(levelname)s - %(message)s'
         logging.basicConfig(stream=sys.stderr, format=FORMAT)
         GMail.logger.setLevel(logging.INFO)
-        m = GMail(sys.argv[1], password)
+        m = GMail(password)
         m.monitor(30)
     except KeyboardInterrupt:
         sys.exit(1)

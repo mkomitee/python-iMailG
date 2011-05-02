@@ -1,10 +1,21 @@
 1) Copy iMailG.ini to your home directory, make it hidden.
-2) Update the ini file section name with your email address
-3) Update the ini file with the 'receipt' number you're sent by the iMailG team
+2) Update the ini file settings section address field with your email address
+3) Update the ini file settings section receipt field with the 'receipt' number you're sent by the iMailG team
 4) Start iMailG.py, passing in your email address on the commandline
 5) When prompted, type in your password
 
 It's been coded in such a way that it will not cache your password on disk.
+
+
+Optionally, you can create a whitelist or a blacklist section.
+
+If you have a blacklist section, any messages from those addresses will not be sent as a notification.
+If you have a whitelist section, only messages from those addresses will be sent as notifications.
+
+These two sections are optional, and examples are in the included inifile.
+
+Keep in mind, it doesn't make much sense to have both a whitelist and a blacklist.
+
 
 Also, if you don't have a place to run this, I'm running it on a micro amazon ec2 instance. It's free for the first year.
 
