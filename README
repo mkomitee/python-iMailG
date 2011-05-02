@@ -1,0 +1,7 @@
+1) Copy iMailG.ini to your home directory, make it hidden.
+2) Update the ini file section name with your email address
+3) Start iMailG.py, passing in your email address on the commandline
+4) When prompted, type in your password
+
+It's been coded in such a way that it will not cache your password on disk.
+

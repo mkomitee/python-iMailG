@@ -14,7 +14,7 @@ class GMailError(Exception):
 
 class GMail(object):
     logger = logging.getLogger('GMail')
-    config_file = '%s/.igmail.ini' % os.environ['HOME']
+    config_file = '%s/.iMailG.ini' % os.environ['HOME']
     def __init__(self, address, password):
         self.logger    = self.__class__.logger
         self._address  = address
