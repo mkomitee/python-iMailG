@@ -8,12 +8,14 @@ import re
 import sys
 import logging
 import time
+import dateutil.parser
+import datetime
 
-class GMailError(Exception):
+class iMailGError(Exception):
     pass
 
-class GMail(object):
-    logger = logging.getLogger('GMail')
+class iMailG(object):
+    logger = logging.getLogger('iMailG')
     config_file = '%s/.iMailG.ini' % os.environ['HOME']
     def __init__(self, password):
         self._password  = password
@@ -29,7 +31,7 @@ class GMail(object):
         try:
             self._address = cfg['settings']['address']
         except KeyError:
-            raise(GMailError('address is required in the settings section of %s' % self.__class__.config_file))
+            raise(iMailGError('address is required in the settings section of %s' % self.__class__.config_file))
         try:
             self._last_uid = cfg['settings']['last_uid']
         except KeyError:
@@ -49,7 +51,7 @@ class GMail(object):
         try:
             self._receipt = cfg['settings']['receipt']
         except KeyError:
-            raise(GMailError('receipt is required in the settings section of %s' % self.__class__.config_file))
+            raise(iMailGError('receipt is required in the settings section of %s' % self.__class__.config_file))
         try:
             self._ringtone = cfg['settings']['ringtone']
         except KeyError:
@@ -82,6 +84,16 @@ class GMail(object):
         except KeyError:
             pass
 
+        try:
+            self._quiet_start = dateutil.parser.parse(cfg['settings']['quiet_start']).time()
+        except KeyError:
+            self._quiet_start = None
+        
+        try:
+            self._quiet_end = dateutil.parser.parse(cfg['settings']['quiet_end']).time()
+        except KeyError:
+            self._quiet_end = None
+
     @property
     def _imap(self):
         try:
@@ -112,7 +124,7 @@ class GMail(object):
         else:
             error_msg = "Failure in imap login: %s, %s" % (status, message)
             self.logger.debug(error_msg)
-            raise(GMailError(error_msg))
+            raise(iMailGError(error_msg))
 
         self.logger.info("Selecting label %s" % self._label)
         status, code = self.__imap.select(self._label)
@@ -121,10 +133,22 @@ class GMail(object):
         else:
             error_msg = "Failure in imap select: %s, %s" % (status, code)
             self.logger.debug(error_msg)
-            raise(GMailError(error_msg))
+            raise(iMailGError(error_msg))
 
     def _push(self, badge=None, messages=None, message=None):
         post = dict(email=self._address, txid=self._receipt, igmail='iGmail')
+        quiet = False
+
+        if self._quiet_start is not None and self._quiet_end is not None:
+            now = datetime.datetime.now().time()
+            if self._quiet_start < self._quiet_end:
+                if now > self._quiet_start and now < self._quiet_end:
+                    quiet = True
+            else:
+                if now > self._quiet_start or now < self._quiet_end:
+                    quiet = True
+        if quiet:
+            self.logger.debug("Squelching alerts due to time")
 
         if message is not None:
             self.logger.info("Sending message: %s" % message)
@@ -133,7 +157,7 @@ class GMail(object):
             if badge != int(self._badge):
                 # we need to update the badge, at least
                 post['badge'] = badge
-                if self._send_summary and len(messages) > 0:
+                if not quiet and self._send_summary and len(messages) > 0:
                     # New messages to send, ...
                     message = 'From: %(from)s||Subject: %(subject)s' % messages[0]
                     post['msg'] = message[:180]
@@ -165,7 +189,7 @@ class GMail(object):
         if status == 'OK':
             self.logger.debug("Got list of unseen ids")
         else:
-            raise(GMailError("Failure in imap search"))
+            raise(iMailGError("Failure in imap search"))
 
         for id in ids[0].split():
             count += 1
@@ -173,14 +197,14 @@ class GMail(object):
             if status == 'OK':
                 self.logger.debug("Fetched data for message %s" % id)
             else:
-                raise(GMailError("Failure in imap fetch"))
+                raise(iMailGError("Failure in imap fetch"))
 
             m = re.search('UID (\d+) BODY', data[0][0])
             if m is not None:
                 uid = m.group(1)
                 self.logger.debug("Extracted uid for message %s: %s" % (id, uid))
             else:
-                raise(GMailError("No UID for message %s" % id))
+                raise(iMailGError("No UID for message %s" % id))
 
             if int(uid) > int(self._last_uid):
                 self._last_uid = uid
@@ -253,8 +277,8 @@ if __name__ == '__main__':
         password = getpass.getpass()
         FORMAT = '%(asctime)-15s %(name)s %(levelname)s - %(message)s'
         logging.basicConfig(stream=sys.stderr, format=FORMAT)
-        GMail.logger.setLevel(logging.INFO)
-        m = GMail(password)
+        iMailG.logger.setLevel(logging.INFO)
+        m = iMailG(password)
         m.monitor(30)
     except KeyboardInterrupt:
         sys.exit(1)
