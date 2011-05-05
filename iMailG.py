@@ -10,6 +10,8 @@ import logging
 import time
 import dateutil.parser
 import datetime
+import email.header
+
 
 class iMailGError(Exception):
     pass
@@ -215,7 +217,7 @@ class iMailG(object):
             fields = re.split('[\r\n]+', data[0][1])
             msg = {'uid': uid, 'subject': 'No Subject', 'from': 'No From'}
             from_address = None
-            for field in fields:
+            for field in [self.__class__.decode_header(f) for f in fields]:
                 m = re.match('From: (.*)$', field)
                 if m is not None:
                     msg['from'] = m.group(1).strip()
@@ -270,6 +272,14 @@ class iMailG(object):
             self.logger.critical(e)
             #self._push(message="Unable to monitor inbox")
             raise(e)
+
+    @classmethod
+    def decode_header(cls, field):
+        parts = []
+        for part in email.header.decode_header(field):
+            parts.append(part[0])
+        assembled = ' '.join(parts)
+        return(assembled)
 
 
 if __name__ == '__main__':
