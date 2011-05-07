@@ -29,6 +29,9 @@ class iMailG(object):
         self._read_config()
 
     def _read_config(self):
+        ''' 
+        Read in configuration parameters from the config file
+        '''
         cfg = iniparse.INIConfig(open(self.__class__.config_file))
         try:
             self._address = cfg['settings']['address']
@@ -98,6 +101,11 @@ class iMailG(object):
 
     @property
     def _imap(self):
+        ''' 
+        Ensure the imap connection is alive, if its not, Connect.
+
+        If its still problematic, reraise the exception.
+        '''
         try:
             self.__imap.check()
             self._retried = False
@@ -117,6 +125,9 @@ class iMailG(object):
         return self.__imap
 
     def _connect(self):
+        '''
+        Connect to the server and select the appropriate mailbox
+        '''
         self.logger.info("Connecting to %s:%s" % (self._server, self._port))
         self.__imap = imaplib.IMAP4_SSL(self._server, self._port)
 
@@ -138,6 +149,9 @@ class iMailG(object):
             raise(iMailGError(error_msg))
 
     def _push(self, badge=None, messages=None, message=None):
+        '''
+        Push the given notification to iMailG
+        '''
         post = dict(email=self._address, txid=self._receipt, igmail='iGmail')
         quiet = False
 
@@ -169,12 +183,15 @@ class iMailG(object):
                         pass
             else:
                 # short circuit, theres nothing to update
-                self.logger.debug("Nothing to do")
+                self.logger.debug("Nothing to push")
                 return
 
         self._post(post)
 
     def _post(self, content):
+        '''
+        Post the given parameters to the url 
+        '''
         params = urllib.urlencode(content)
         self.logger.debug("POSTING %s" % params)
         f = urllib.urlopen(self._url, params)
@@ -183,8 +200,10 @@ class iMailG(object):
             self.logger.warning(result)
 
 
-
     def _check(self):
+        '''
+        Extract the appropriate information about new Messages in the mailbox
+        '''
         count = 0
         notifications = []
         status, ids = self._imap.search(None, 'UNSEEN')
@@ -235,12 +254,12 @@ class iMailG(object):
                     self.logger.debug("Extracted subject field from message %s: %s" % (id, msg['subject']))
                     continue
 
-            if from_address in self._blacklist:
+            if self._blacklisted(from_address):
                 self.logger.debug("Messages from %s blacklisted" % from_address)
                 continue
 
             if len(self._whitelist) > 0:
-                if from_address not in self._whitelist:
+                if not self._whitelisted(from_address):
                     self.logger.debug("Messages from %s not whitelisted" % from_address)
                     continue
 
@@ -250,8 +269,31 @@ class iMailG(object):
         self._push(badge=count, messages=notifications)
         self._badge = str(count)
 
+    def _blacklisted(self, address):
+        ''' 
+        Returns whether or not an address is blacklisted
+        '''
+        for pattern in self._blacklist:
+            if re.match(pattern, address):
+                return True
+        return False
+
+
+    def _whitelisted(self, address):
+        ''' 
+        Returns whether or not an address is whitelisted
+        '''
+        for pattern in self._whitelist:
+            if re.match(pattern, address):
+                return True
+        return False
 
     def _checkpoint(self):
+        '''
+        Update our config with the uid of the last seen message
+
+        This prevents duplicate notifications on restart
+        '''
         # TODO this is possibly a race condition if we have multiple instances
         # running polling multiple mail boxes
         cfg = iniparse.INIConfig(open(self.__class__.config_file))
@@ -260,7 +302,17 @@ class iMailG(object):
         print >>f, cfg
         f.close()
 
-    def monitor(self, sleep_time=None):
+    def monitor(self, sleep_time=None, retry=0):
+        '''
+        Monitor the mailbox every 30 seconds.
+        
+        If an exception is caught, retry with exponential backoff.
+        '''
+        if retry is None:
+            retry = 0
+        else:
+            self.logger.info("Sleeping %d before retrying, ..." % retry ** 2)
+            time.sleep(retry**2)
         try:
             if sleep_time is None:
                 sleep_time = 30
@@ -268,13 +320,19 @@ class iMailG(object):
                 self._check()
                 self._checkpoint()
                 time.sleep(sleep_time)
+                retry = 0
         except Exception as e:
             self.logger.critical(e)
-            #self._push(message="Unable to monitor inbox")
+            self._push(message="Unable to monitor inbox")
+            retry += 1
+            self.monitor(sleep_time, retry)
             raise(e)
 
     @classmethod
     def decode_header(cls, field):
+        '''
+        Decode email multi-encoding headers
+        '''
         parts = []
         for part in email.header.decode_header(field):
             parts.append(part[0])
@@ -287,7 +345,12 @@ if __name__ == '__main__':
         password = getpass.getpass()
         FORMAT = '%(asctime)-15s %(name)s %(levelname)s - %(message)s'
         logging.basicConfig(stream=sys.stderr, format=FORMAT)
-        iMailG.logger.setLevel(logging.INFO)
+        if '-d' in sys.argv:
+            iMailG.logger.setLevel(logging.DEBUG)
+        elif '-v' in sys.argv:
+            iMailG.logger.setLevel(logging.INFO)
+        else:
+            iMailG.logger.setLevel(logging.WARNING)
         m = iMailG(password)
         m.monitor(30)
     except KeyboardInterrupt:
