@@ -1,4 +1,10 @@
 #!/usr/bin/env python
+#   Last edited by:  $Author$
+#               on:  $Date$
+#         Source  :  $Source$
+#         Revision:  $Revision$
+#
+#               ID:  $Id$
 import urllib
 import iniparse
 import os
@@ -11,7 +17,9 @@ import time
 import dateutil.parser
 import datetime
 import email.header
+from optparse import OptionParser
 
+__version__ = "$Revision: 0 $"[11:-2]
 
 class iMailGError(Exception):
     pass
@@ -302,6 +310,44 @@ class iMailG(object):
         print >>f, cfg
         f.close()
 
+    def list_addresses(self):
+        addresses = set()
+        status, ids = self._imap.search(None, 'UNSEEN')
+        if status == 'OK':
+            self.logger.debug("Got list of unseen ids")
+        else:
+            raise(iMailGError("Failure in imap search"))
+
+        for id in ids[0].split():
+            status, data = self._imap.fetch(id, '(UID BODY.PEEK[HEADER.FIELDS (Subject From)])')
+            if status == 'OK':
+                self.logger.debug("Fetched data for message %s" % id)
+            else:
+                raise(iMailGError("Failure in imap fetch"))
+
+            m = re.search('UID (\d+) BODY', data[0][0])
+            if m is not None:
+                uid = m.group(1)
+                self.logger.debug("Extracted uid for message %s: %s" % (id, uid))
+            else:
+                raise(iMailGError("No UID for message %s" % id))
+
+            fields = re.split('[\r\n]+', data[0][1])
+            from_address = None
+            for field in [self.__class__.decode_header(f) for f in fields]:
+                m = re.match('From: (.*)$', field)
+                if m is not None:
+                    from_address = m.group(1).strip()
+                    m = re.match("(.*)<(.*)>\s*$", from_address)
+                    if m is not None:
+                        from_address = m.group(2).strip()
+                    self.logger.debug("Extracted from field from message %s: %s" % (id, from_address))
+                    continue
+            if from_address is not None:
+                addresses.add(from_address)
+        print "\n".join(addresses)
+                
+
     def monitor(self, sleep_time=None, retry=0):
         '''
         Monitor the mailbox every 30 seconds.
@@ -339,19 +385,56 @@ class iMailG(object):
         assembled = ' '.join(parts)
         return(assembled)
 
+def version():
+    """Display current version and exit"""
+    print "%s version: %s" % (os.path.basename(__file__), __version__ )
+    sys.exit(0)
+
+def parse_options():
+    """Process Commandline Arguments"""
+    p = OptionParser()
+    p.add_option('-v', '--version', action='store_true', dest='version',
+            default=False, help='print version')
+    p.add_option('--debug', action='store_true', dest='debug',
+            default=False, help='debug output')
+    p.add_option('--verbose', action='store_true', dest='verbose',
+            default=False, help='verbose output')
+    p.add_option('--list-addresses', action='store_true', dest='list_addresses',
+            default=False, help='list addresses')
+    (options, args) = p.parse_args()
+    if options.version:
+        version()
+    if len(args) > 0:
+        p.print_help()
+        sys.exit(1)
+    return options
+
+def loop():
+    password = getpass.getpass()
+    m = iMailG(password)
+    m.monitor(30)
+
+def list_addresses():
+    password = getpass.getpass()
+    m = iMailG(password)
+    m.list_addresses()
 
 if __name__ == '__main__':
-    try:
-        password = getpass.getpass()
         FORMAT = '%(asctime)-15s %(name)s %(levelname)s - %(message)s'
         logging.basicConfig(stream=sys.stderr, format=FORMAT)
-        if '-d' in sys.argv:
+        options = parse_options()
+        if options.debug:
             iMailG.logger.setLevel(logging.DEBUG)
-        elif '-v' in sys.argv:
+        elif options.verbose:
             iMailG.logger.setLevel(logging.INFO)
         else:
             iMailG.logger.setLevel(logging.WARNING)
-        m = iMailG(password)
-        m.monitor(30)
-    except KeyboardInterrupt:
-        sys.exit(1)
+        try:
+            if options.list_addresses:
+                list_addresses()
+            else:
+                loop()
+        except KeyboardInterrupt:
+            sys.exit(1)
+
+# vim: set ft=python ts=4 sw=4 et:
