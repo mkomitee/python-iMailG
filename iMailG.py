@@ -1,10 +1,4 @@
 #!/usr/bin/env python
-#   Last edited by:  $Author$
-#               on:  $Date$
-#         Source  :  $Source$
-#         Revision:  $Revision$
-#
-#               ID:  $Id$
 import urllib
 import iniparse
 import os
@@ -19,7 +13,7 @@ import datetime
 import email.header
 from optparse import OptionParser
 
-__version__ = "$Revision: 0 $"[11:-2]
+__version__ = "1.0"
 
 class iMailGError(Exception):
     pass
